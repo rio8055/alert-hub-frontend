@@ -369,6 +369,26 @@ export function ChatPage() {
   const dragStartRef = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
   const longPressTimerRef = useRef<number | null>(null);
 
+  const reconcileSenderAfterAccounts = (accData: AccountRec[]) => {
+    setSenderId((prev) => {
+      if (accData.length === 0) return "";
+      if (prev && accData.some((a) => String(a.id) === prev)) return prev;
+      const stored = safeLocalStorageGet<string>(CHAT_SELECTED_SENDER_KEY, "");
+      if (stored && accData.some((a) => String(a.id) === stored)) return stored;
+      return accData.length > 0 ? String(accData[0].id) : "";
+    });
+  };
+
+  const refreshLinkedAccounts = async () => {
+    try {
+      const accData = await api<AccountRec[]>("/accounts");
+      setAccounts(accData);
+      reconcileSenderAfterAccounts(accData);
+    } catch {
+      /* ignore */
+    }
+  };
+
   useEffect(() => {
     setOutgoing(safeLocalStorageGet<OutgoingMessage[]>(OUTBOX_KEY, []));
     setDismissedThreadIds(safeLocalStorageGet<string[]>(DISMISSED_THREADS_KEY, []));
@@ -380,31 +400,33 @@ export function ChatPage() {
   }, []);
 
   useEffect(() => {
-    api<AccountRec[]>("/accounts")
-      .then((data) => {
-        setAccounts(data);
-        if (!senderId && data.length > 0) setSenderId(String(data[0].id));
-      })
-      .catch((e: Error) => setError(e.message));
-  }, [senderId]);
-  useEffect(() => {
-    const load = async () => {
+    let cancelled = false;
+    const loadChat = async () => {
       setLoading(true);
       try {
-        const data = await api<NotificationsResp>(
-          "/notifications?page=1&page_size=250&include_outgoing=true&for_chat=true",
-        );
-        setNotifications(data.items || []);
+        const [notifResp, accData] = await Promise.all([
+          api<NotificationsResp>(
+            "/notifications?page=1&page_size=250&include_outgoing=true&for_chat=true",
+          ),
+          api<AccountRec[]>("/accounts"),
+        ]);
+        if (cancelled) return;
+        setNotifications(notifResp.items || []);
+        setAccounts(accData);
+        reconcileSenderAfterAccounts(accData);
         setError(null);
       } catch (e: unknown) {
-        setError(errorMessage(e, "Failed to load chat messages"));
+        if (!cancelled) setError(errorMessage(e, "Failed to load chat messages"));
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
-    load();
-    const id = window.setInterval(load, 6000);
-    return () => window.clearInterval(id);
+    void loadChat();
+    const id = window.setInterval(() => void loadChat(), 6000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
   }, []);
 
   useEffect(() => {
@@ -722,6 +744,7 @@ export function ChatPage() {
       if (!silent) toast.success("Marked as read");
     } catch (e: unknown) {
       if (!silent) toast.error(errorMessage(e, "Failed to mark read"));
+      void refreshLinkedAccounts();
     }
   };
 
@@ -833,6 +856,7 @@ export function ChatPage() {
         });
       } catch (e: unknown) {
         toast.error(errorMessage(e, "Failed to pin message"));
+        void refreshLinkedAccounts();
         return;
       }
     }
@@ -869,6 +893,7 @@ export function ChatPage() {
       toast.success("Message deleted");
     } catch (e: unknown) {
       toast.error(errorMessage(e, "Failed to delete message"));
+      void refreshLinkedAccounts();
     }
   };
 
@@ -1701,6 +1726,7 @@ export function ChatPage() {
                         toast.success("Message edited");
                       } catch (err: unknown) {
                         toast.error(errorMessage(err, "Failed to edit message"));
+                        void refreshLinkedAccounts();
                       } finally {
                         setSending(false);
                       }
@@ -1758,6 +1784,7 @@ export function ChatPage() {
                     } catch (e: unknown) {
                       setOutgoing((prev) => prev.filter((m) => m.id !== tempId));
                       toast.error(errorMessage(e, "Failed to send message"));
+                      void refreshLinkedAccounts();
                     } finally {
                       setSending(false);
                     }
