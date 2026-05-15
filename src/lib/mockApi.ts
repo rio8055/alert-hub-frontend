@@ -392,9 +392,10 @@ export function handleMock(
       return delay(ok(a));
     }
     if (M === "POST" && action === "reconnect") {
-      a.status = "active";
+      if (!a.phone_number) return delay(err(400, "Phone number required to reconnect"));
+      db.pendingCodes[a.session_name] = true;
       commit();
-      return delay(ok(a));
+      return delay(ok({ ok: true }));
     }
     if (M === "POST" && action === "mute") {
       a.status = "muted";
@@ -421,17 +422,27 @@ export function handleMock(
     if (!db.pendingCodes[body.session_name]) return delay(err(400, "Send code first"));
     if (!body.code) return delay(err(400, "Code required"));
     if (body.code === "00000" && !body.password) return delay(err(401, "2FA password required"));
-    const a: AccountRec = {
-      id: db.nextId++,
-      type: "telegram",
-      label: body.display_name,
-      display_name: body.display_name,
-      username: body.username ? String(body.username) : undefined,
-      session_name: body.session_name,
-      phone_number: body.phone_number,
-      status: "active",
-    };
-    db.accounts.push(a);
+    const existing = db.accounts.find((x) => x.session_name === body.session_name);
+    const a: AccountRec = existing
+      ? {
+          ...existing,
+          label: body.display_name,
+          display_name: body.display_name,
+          phone_number: body.phone_number,
+          status: "active",
+        }
+      : {
+          id: db.nextId++,
+          type: "telegram",
+          label: body.display_name,
+          display_name: body.display_name,
+          username: body.username ? String(body.username) : undefined,
+          session_name: body.session_name,
+          phone_number: body.phone_number,
+          status: "active",
+        };
+    if (!existing) db.accounts.push(a);
+    else Object.assign(existing, a);
     delete db.pendingCodes[body.session_name];
     commit();
     return delay(ok({ ok: true, account: a }));

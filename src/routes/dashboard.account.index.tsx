@@ -75,6 +75,22 @@ export function AccountsPage() {
     }
   };
 
+  const reconnect = (a: AccountRec) => {
+    if (!a.phone_number) {
+      toast.error("No phone number on file for this account. Remove it and add it again.");
+      return;
+    }
+    navigate({
+      to: "/account/connect/telegram",
+      search: {
+        reconnect: "1",
+        display_name: accountDisplayName(a),
+        session_name: a.session_name,
+        phone: a.phone_number,
+      },
+    });
+  };
+
   const remove = async (a: AccountRec) => {
     if (!confirm(`Remove "${accountDisplayName(a)}" permanently?`)) return;
     try {
@@ -173,11 +189,7 @@ export function AccountsPage() {
                     </Button>
                   )}
                   {a.status === "disconnected" && (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => action(a, "reconnect", "Reconnected")}
-                    >
+                    <Button size="sm" variant="ghost" onClick={() => reconnect(a)}>
                       <Power className="h-4 w-4" /> Reconnect
                     </Button>
                   )}

@@ -1,5 +1,5 @@
-import { Link, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { Link, useNavigate, useSearch } from "@tanstack/react-router";
+import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, Send, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
@@ -7,15 +7,25 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
+type ConnectSearch = {
+  reconnect?: string;
+  display_name?: string;
+  session_name?: string;
+  phone?: string;
+};
+
 export function ConnectTelegramPage() {
   const navigate = useNavigate();
-  const [displayName, setDisplayName] = useState("");
-  const [sessionName, setSessionName] = useState("");
-  const [phone, setPhone] = useState("");
+  const search = useSearch({ strict: false }) as ConnectSearch;
+  const isReconnect = search.reconnect === "1";
+  const [displayName, setDisplayName] = useState(search.display_name || "");
+  const [sessionName, setSessionName] = useState(search.session_name || "");
+  const [phone, setPhone] = useState(search.phone || "");
   const [code, setCode] = useState("");
   const [password, setPassword] = useState("");
   const [step, setStep] = useState<1 | 2>(1);
   const [busy, setBusy] = useState(false);
+  const autoSentRef = useRef(false);
 
   const sendCode = async () => {
     if (!displayName || !sessionName || !phone) {
@@ -41,6 +51,13 @@ export function ConnectTelegramPage() {
     }
   };
 
+  useEffect(() => {
+    if (!isReconnect || autoSentRef.current) return;
+    if (!displayName || !sessionName || !phone) return;
+    autoSentRef.current = true;
+    void sendCode();
+  }, [isReconnect, displayName, sessionName, phone]);
+
   const verify = async () => {
     setBusy(true);
     try {
@@ -54,7 +71,7 @@ export function ConnectTelegramPage() {
           password: password || undefined,
         }),
       });
-      toast.success("Telegram connected!");
+      toast.success(isReconnect ? "Account reconnected!" : "Telegram connected!");
       navigate({ to: "/account/" });
     } catch (e: any) {
       toast.error(e.message);
@@ -77,8 +94,14 @@ export function ConnectTelegramPage() {
           <Send className="h-6 w-6" />
         </div>
         <div>
-          <h2 className="text-lg font-semibold">Connect Telegram</h2>
-          <p className="text-sm text-muted-foreground">Step {step} of 2</p>
+          <h2 className="text-lg font-semibold">
+            {isReconnect ? "Reconnect Telegram" : "Connect Telegram"}
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            {isReconnect && step === 1 && busy
+              ? "Sending verification code…"
+              : `Step ${step} of 2`}
+          </p>
         </div>
       </div>
 
@@ -90,7 +113,7 @@ export function ConnectTelegramPage() {
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
             placeholder="Personal"
-            disabled={step === 2}
+            disabled={step === 2 || isReconnect}
           />
         </div>
         <div>
@@ -100,7 +123,7 @@ export function ConnectTelegramPage() {
             value={sessionName}
             onChange={(e) => setSessionName(e.target.value)}
             placeholder="my-session"
-            disabled={step === 2}
+            disabled={step === 2 || isReconnect}
           />
         </div>
         <div>
@@ -110,7 +133,7 @@ export function ConnectTelegramPage() {
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
             placeholder="+15551234567"
-            disabled={step === 2}
+            disabled={step === 2 || isReconnect}
           />
         </div>
       </div>
@@ -148,7 +171,7 @@ export function ConnectTelegramPage() {
         ) : (
           <>
             <Button onClick={verify} disabled={busy}>
-              {busy ? "Verifying..." : "Verify and connect"}
+              {busy ? "Verifying..." : isReconnect ? "Verify and reconnect" : "Verify and connect"}
             </Button>
             <Button variant="outline" onClick={() => setStep(1)}>
               Back
